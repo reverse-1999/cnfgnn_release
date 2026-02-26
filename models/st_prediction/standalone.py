@@ -117,19 +117,19 @@ class NodePredictor(LightningModule):
     def train_dataloader(self):
         return DataLoader(
             self.datasets['train']['dataset'],
-            batch_size=self.hparams.batch_size, shuffle=True, num_workers=8
-        )
+            batch_size=self.hparams.batch_size, shuffle=True, num_workers=0
+        )###我的改动###num_workers8
 
     def val_dataloader(self):
         return DataLoader(
             self.datasets['val']['dataset'],
-            batch_size=self.hparams.batch_size, shuffle=False, num_workers=8
+            batch_size=self.hparams.batch_size, shuffle=False, num_workers=0
         )
 
     def test_dataloader(self):
         return DataLoader(
             self.datasets['test']['dataset'],
-            batch_size=self.hparams.batch_size, shuffle=False, num_workers=8
+            batch_size=self.hparams.batch_size, shuffle=False, num_workers=0
         )
 
     def configure_optimizers(self):
@@ -177,7 +177,15 @@ class NodePredictor(LightningModule):
             if k != 'num':
                 log[k] = log[k] / log['num']
         log.pop('num')
-        return {'log': log, 'progress_bar': log}
+        #return {'log': log, 'progress_bar': log}
+        for key, value in log.items():
+            self.log(
+                name=key,          # 指标名称（如 loss、train_avg_loss）
+                value=value,        # 计算后的加权平均值
+                prog_bar=True,      # 在进度条显示（替代 progress_bar）
+                logger=True,        # 写入日志文件/PL 日志系统（替代 log）
+                sync_dist=True      # 若用多 GPU 训练，自动同步所有 GPU 的指标（单 GPU 也可加，不影响）
+        )###我的改动###
 
     def validation_step(self, batch, batch_idx):
         if self.hparams.hetero_graph:
@@ -200,7 +208,8 @@ class NodePredictor(LightningModule):
         return {'loss': loss, 'progress_bar': log, 'log': log}
 
     def validation_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        #return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)###我的改动###
 
     def test_step(self, batch, batch_idx):
         if self.hparams.hetero_graph:
@@ -223,4 +232,5 @@ class NodePredictor(LightningModule):
         return {'loss': loss, 'progress_bar': log, 'log': log}
 
     def test_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        #return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)###我的改动###

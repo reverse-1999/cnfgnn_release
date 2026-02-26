@@ -49,15 +49,15 @@ class NodeClassifier(LightningModule):
 
     def train_dataloader(self):
         return DataLoader([self.data], batch_size=self.hparams.batch_size,
-            num_workers=1)
+            num_workers=0) ###我的改动###num_workers=1
 
     def val_dataloader(self):
         return DataLoader([self.data], batch_size=self.hparams.batch_size,
-            num_workers=1)
+            num_workers=0)
 
     def test_dataloader(self):
         return DataLoader([self.data], batch_size=self.hparams.batch_size,
-            num_workers=1)
+            num_workers=0)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
@@ -88,7 +88,16 @@ class NodeClassifier(LightningModule):
             if k != 'num':
                 log[k] = log[k] / log['num']
         log.pop('num')
-        return {'log': log, 'progress_bar': log}
+
+        #return {'log': log, 'progress_bar': log}
+        for key, value in log.items():
+            self.log(
+                name=key,          # 指标名称（如 loss、train_avg_loss）
+                value=value,        # 计算后的加权平均值
+                prog_bar=True,      # 在进度条显示（替代 progress_bar）
+                logger=True,        # 写入日志文件/PL 日志系统（替代 log）
+                sync_dist=True      # 若用多 GPU 训练，自动同步所有 GPU 的指标（单 GPU 也可加，不影响）
+        )###我的改动###
 
     def validation_step(self, batch, batch_idx):
         m_out = self(batch)
@@ -102,7 +111,8 @@ class NodeClassifier(LightningModule):
         return {'loss': loss, 'progress_bar': log, 'log': log}
 
     def validation_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        #return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)###我的改动###
 
     def test_step(self, batch, batch_idx):
         m_out = self(batch)
@@ -116,4 +126,5 @@ class NodeClassifier(LightningModule):
         return {'loss': loss, 'progress_bar': log, 'log': log}
 
     def test_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        #return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)###我的改动###

@@ -299,7 +299,15 @@ class FedNodeClassifier(LightningModule):
         # already averaged!
         log = outputs[0]['log']
         log.pop('num_samples')
-        return {'log': log, 'progress_bar': log}
+        #return {'log': log, 'progress_bar': log}
+        for key, value in log.items():
+            self.log(
+                name=key,          # 指标名称（如 loss、train_avg_loss）
+                value=value,        # 计算后的加权平均值
+                prog_bar=True,      # 在进度条显示（替代 progress_bar）
+                logger=True,        # 写入日志文件/PL 日志系统（替代 log）
+                sync_dist=True      # 若用多 GPU 训练，自动同步所有 GPU 的指标（单 GPU 也可加，不影响）
+        )###我的改动###
 
     def validation_step(self, batch, batch_idx):
         # 1. vaidate locally and collect uploaded local train results
@@ -313,7 +321,8 @@ class FedNodeClassifier(LightningModule):
         return {'progress_bar': log, 'log': log}
 
     def validation_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        #return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)###我的改动###
 
     def test_step(self, batch, batch_idx):
         # 1. vaidate locally and collect uploaded local train results
@@ -327,7 +336,8 @@ class FedNodeClassifier(LightningModule):
         return {'progress_bar': log, 'log': log}
 
     def test_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        #return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)###我的改动###
 
 
 class FedAvgNodeClassifier(FedNodeClassifier):
