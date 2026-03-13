@@ -64,6 +64,8 @@ class SplitFedNodePredictorClient(nn.Module):
         self.optimizer = getattr(torch.optim, self.optimizer_name)(self.base_model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
 
     def local_train(self, state_dict_to_load):
+        # 客户端本地训练：使用服务器下发的聚合模型权重 + 服务器图编码（server_graph_encoding）
+        # 这里的 server_graph_encoding 已经由服务器 GNN 预先算好，并作为第 5 个字段放进 TensorDataset。
         if state_dict_to_load is not None:
             self.base_model.load_state_dict(state_dict_to_load)
         self.train()
@@ -107,6 +109,7 @@ class SplitFedNodePredictorClient(nn.Module):
         }
 
     def local_eval(self, dataloader, name, state_dict_to_load):
+        # 客户端本地验证/测试：流程与 local_train 类似，但不更新参数。
         if state_dict_to_load is not None:
             self.base_model.load_state_dict(state_dict_to_load)
         self.eval()
@@ -222,6 +225,7 @@ class SplitFedNodePredictor(LightningModule):
         # must avoid repeated init!!! otherwise loaded model weights will be re-initialized!!!
         if self.base_model is not None:
             return
+        # 1) 一次性加载数据（含静态图 edge_index/edge_attr）
         data = load_dataset(dataset_name=self.hparams.dataset)
         self.data = data
         # Each node (client) has its own model and optimizer
@@ -233,6 +237,8 @@ class SplitFedNodePredictor(LightningModule):
         for client_i in range(num_clients):
             client_datasets = {}
             for name in ['train', 'val', 'test']:
+                # 2) 为每个客户端切出“单节点视角”的本地数据
+                #    第 5 个张量是默认的 server_graph_encoding（初始全零），后续会被服务器更新。
                 client_datasets[name] = TensorDataset(
                     data[name]['x'][:, :, client_i:client_i+1, :],
                     data[name]['y'][:, :, client_i:client_i+1, :],
@@ -256,6 +262,7 @@ class SplitFedNodePredictor(LightningModule):
         self.client_params_list = client_params_list
 
         self.base_model = getattr(base_models, self.hparams.base_model_name)(input_size=input_size, output_size=output_size, **self.hparams)
+        # 3) 服务器侧图网络（GraphNet），负责根据跨节点编码进行空间传播
         self.gcn = GraphNet(
             node_input_size=self.hparams.hidden_size,
             edge_input_size=1,
@@ -272,12 +279,18 @@ class SplitFedNodePredictor(LightningModule):
         self.server_optimizer = getattr(torch.optim, 'Adam')(self.gcn.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
         self.server_datasets = {}
         for name in ['train', 'val', 'test']:
+            # 服务器数据是“全节点视角”，用于训练/推理 server GNN 生成 server_graph_encoding
             self.server_datasets[name] = TensorDataset(
                 self.data[name]['x'], self.data[name]['y'], 
                 self.data[name]['x_attr'], self.data[name]['y_attr']
             )
 
     def _train_server_gcn_with_agg_clients(self, device):
+        """服务器阶段：
+        - 前若干个 epoch 只更新服务器 GNN 参数；
+        - 最后 1 个 epoch 仅前向，导出每个客户端对应的 server_graph_encoding；
+        - 再把该编码写回每个客户端的 train_dataset。
+        """
         # here we assume all clients are aggregated! Simulate running on clients with the aggregated copy on server
         # this only works when (1) clients are aggregated and (2) no optimization on client models
         self.base_model.to(device)
@@ -309,6 +322,7 @@ class SplitFedNodePredictor(LightningModule):
                     h_encode = self.base_model.forward_encoder(data) # L x (B x N) x F
                     batch_num, node_num = data['x'].shape[0], data['x'].shape[2]
                     graph_encoding = h_encode.view(h_encode.shape[0], batch_num, node_num, h_encode.shape[2]).permute(2, 1, 0, 3) # N x B x L x F
+                    # 使用“当前静态图结构 + 当前编码”做服务器图传播
                     graph_encoding = self.gcn(
                         Data(x=graph_encoding, 
                         edge_index=self.data['train']['edge_index'].to(graph_encoding.device), 
@@ -340,11 +354,13 @@ class SplitFedNodePredictor(LightningModule):
                 self.data['train']['y'][:, :, client_i:client_i+1, :],
                 self.data['train']['x_attr'][:, :, client_i:client_i+1, :],
                 self.data['train']['y_attr'][:, :, client_i:client_i+1, :],
+                # 给第 i 个客户端分配对应的 server 图编码（shape: B x 1 x L x F）
                 updated_graph_encoding[sel_client_i:sel_client_i+1, :, :, :].permute(1, 0, 2, 3)
             ))
             sel_client_i += 1
 
     def _eval_server_gcn_with_agg_clients(self, name, device):
+        """验证/测试阶段先由服务器统一计算 server_graph_encoding，再下发到各客户端。"""
         assert name in ['val', 'test']
         self.base_model.to(device)
         self.gcn.to(device)
@@ -402,6 +418,12 @@ class SplitFedNodePredictor(LightningModule):
         return None
 
     def training_step(self, batch, batch_idx):
+        """一轮训练的大白话流程：
+        1) 服务器把当前聚合模型下发给客户端，本地训练；
+        2) 服务器聚合客户端权重（FedAvg）；
+        3) 服务器单独训练 GNN，并刷新各客户端的 server_graph_encoding；
+        4) 下一轮客户端训练将使用新的 server_graph_encoding。
+        """
         # 1. train locally and collect uploaded local train results
         local_train_results = []
         server_device = next(self.gcn.parameters()).device
@@ -446,6 +468,7 @@ class SplitFedNodePredictor(LightningModule):
         # run decoding on all clients, run backward on all clients
         # run backward on server-side GNN and optimize GNN
         # TODO: 4. run forward on updated GNN to renew server_graph_encoding
+        # 3) 服务器训练 GNN 并刷新 server_graph_encoding（写回每个客户端的 train_dataset）
         self._train_server_gcn_with_agg_clients(server_device)
         agg_log = agg_local_train_results['log']
         log = agg_log
