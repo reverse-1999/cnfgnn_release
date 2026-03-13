@@ -392,7 +392,7 @@ class FedNodePredictor(LightningModule):
         # already averaged!
         log = outputs[0]['log']
         log.pop('num_samples')
-        return {'log': log, 'progress_bar': log}
+        #return {'log': log, 'progress_bar': log}
 
     def validation_step(self, batch, batch_idx):
         # 1. vaidate locally and collect uploaded local train results
@@ -422,7 +422,7 @@ class FedNodePredictor(LightningModule):
         return {'progress_bar': log, 'log': log}
 
     def validation_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)
 
     def test_step(self, batch, batch_idx):
         # 1. vaidate locally and collect uploaded local train results
@@ -456,7 +456,7 @@ class FedNodePredictor(LightningModule):
         return {'progress_bar': log, 'log': log}
 
     def test_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)
 
 
 class FedAvgNodePredictor(FedNodePredictor):
