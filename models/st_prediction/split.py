@@ -456,7 +456,9 @@ class SplitGCNNodePredictor(LightningModule):
         # already averaged!
         log = outputs[0]['log']
         log.pop('num_samples')
-        return {'log': log, 'progress_bar': log}
+        self.log("log", log)
+            # 如需进度条可加 self.log("progress_bar", log)
+            # 不返回任何内容，符合 PL 要求
 
     def validation_step(self, batch, batch_idx):
         if self.hparams.hetero_graph:
@@ -497,7 +499,7 @@ class SplitGCNNodePredictor(LightningModule):
         return {'progress_bar': log, 'log': log}
 
     def validation_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)
 
     def test_step(self, batch, batch_idx):
         if self.hparams.hetero_graph:
@@ -543,5 +545,5 @@ class SplitGCNNodePredictor(LightningModule):
         return {'progress_bar': log, 'log': log}
 
     def test_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)
 

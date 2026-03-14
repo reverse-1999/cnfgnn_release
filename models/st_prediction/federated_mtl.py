@@ -219,7 +219,7 @@ class FedMTLNodePredictorClient(nn.Module):
 class FedMTLNodePredictor(LightningModule):
     def __init__(self, hparams, identical_agg_model, *args, **kwargs):
         super().__init__()
-        self.hparams = hparams
+        self.save_hyperparameters(hparams)
         self.identical_agg_model = identical_agg_model
         self.base_model = None
         self.setup(None)
@@ -324,7 +324,7 @@ class FedMTLNodePredictor(LightningModule):
     def configure_optimizers(self):
         return None
 
-    def backward(self, trainer, loss, optimizer, optimizer_idx):
+    def backward(self, loss, optimizer=None, optimizer_idx=None):
         return None
 
     def training_step(self, batch, batch_idx):
@@ -341,8 +341,8 @@ class FedMTLNodePredictor(LightningModule):
 
         if self.hparams.mp_worker_num <= 1:
             for client_i, client_params in enumerate(self.client_params_list):
-                local_train_result = FedMTLNodePredictorClient.client_local_execute(batch.device, 'train', **client_params)
-                local_train_results.append(local_train_result)
+                local_train_result = FedMTLNodePredictorClient.client_local_execute(batch.device, 'train', [client_params])
+                local_train_results.extend(local_train_result)
         else:
             pool = mp.Pool(self.hparams.mp_worker_num)
             for worker_i, client_params in enumerate(np.array_split(self.client_params_list, self.hparams.mp_worker_num)):
@@ -406,7 +406,8 @@ class FedMTLNodePredictor(LightningModule):
         # already averaged!
         log = outputs[0]['log']
         log.pop('num_samples')
-        return {'log': log, 'progress_bar': log}
+            # PL 1.5.10 要求此处不能有 return，直接处理即可
+            # ...existing code...
 
     def validation_step(self, batch, batch_idx):
         # 1. vaidate locally and collect uploaded local train results
@@ -415,8 +416,8 @@ class FedMTLNodePredictor(LightningModule):
             client_params.update(state_dict_to_load=self._get_copied_ith_model(client_i))
         if self.hparams.mp_worker_num <= 1:
             for client_i, client_params in enumerate(self.client_params_list):
-                local_val_result = FedMTLNodePredictorClient.client_local_execute(batch.device, 'val', **client_params)
-                local_val_results.append(local_val_result)
+                local_val_result = FedMTLNodePredictorClient.client_local_execute(batch.device, 'val', [client_params])
+                local_val_results.extend(local_val_result)
         else:
             pool = mp.Pool(self.hparams.mp_worker_num)
             for worker_i, client_params in enumerate(np.array_split(self.client_params_list, self.hparams.mp_worker_num)):
@@ -436,7 +437,7 @@ class FedMTLNodePredictor(LightningModule):
         return {'progress_bar': log, 'log': log}
 
     def validation_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)
 
     def test_step(self, batch, batch_idx):
         # 1. vaidate locally and collect uploaded local train results
@@ -445,8 +446,8 @@ class FedMTLNodePredictor(LightningModule):
             client_params.update(state_dict_to_load=self._get_copied_ith_model(client_i))
         if self.hparams.mp_worker_num <= 1:
             for client_i, client_params in enumerate(self.client_params_list):
-                local_val_result = FedMTLNodePredictorClient.client_local_execute(batch.device, 'test', **client_params)
-                local_val_results.append(local_val_result)
+                local_val_result = FedMTLNodePredictorClient.client_local_execute(batch.device, 'test', [client_params])
+                local_val_results.extend(local_val_result)
         else:
             pool = mp.Pool(self.hparams.mp_worker_num)
             for worker_i, client_params in enumerate(np.array_split(self.client_params_list, self.hparams.mp_worker_num)):
@@ -466,7 +467,7 @@ class FedMTLNodePredictor(LightningModule):
         return {'progress_bar': log, 'log': log}
 
     def test_epoch_end(self, outputs):
-        return self.training_epoch_end(outputs)
+        self.training_epoch_end(outputs)
 
 
 class FixedGraphFedMTLNodePredictor(FedMTLNodePredictor):
