@@ -406,8 +406,7 @@ class FedMTLNodePredictor(LightningModule):
         # already averaged!
         log = outputs[0]['log']
         log.pop('num_samples')
-            # PL 1.5.10 要求此处不能有 return，直接处理即可
-            # ...existing code...
+
 
     def validation_step(self, batch, batch_idx):
         # 1. vaidate locally and collect uploaded local train results

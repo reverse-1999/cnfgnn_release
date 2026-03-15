@@ -457,8 +457,6 @@ class SplitGCNNodePredictor(LightningModule):
         log = outputs[0]['log']
         log.pop('num_samples')
         self.log("log", log)
-            # 如需进度条可加 self.log("progress_bar", log)
-            # 不返回任何内容，符合 PL 要求
 
     def validation_step(self, batch, batch_idx):
         if self.hparams.hetero_graph:
